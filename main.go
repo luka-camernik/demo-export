@@ -243,6 +243,9 @@ func processDemos(demoFile string) {
 
 	p.RegisterEventHandler(func(e events.RoundFreezetimeEnd) {
 		gs := p.GameState()
+		if gs.IsWarmupPeriod() || !gs.IsMatchStarted() {
+			return
+		}
 		if gs.IngameTick() == round.EndTick || round.UnfreezeTick > 0 {
 			return
 		}
