@@ -9,58 +9,76 @@ import (
 	"github.com/markus-wa/demoinfocs-golang/events"
 	"io/ioutil"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
 type Round struct {
-	RoundNumber   int    `json:"round_number"`
-	StartTick     int    `json:"start_tick"`
-	UnfreezeTick  int    `json:"unfreeze_tick"`
-	EndTick       int    `json:"end_tick"`
-	BombExploded  bool   `json:"bomb_exploded"`
-	BombDefused   bool   `json:"bomb_defused"`
-	BombPlanted   bool   `json:"bomb_planted"`
-	Ace           bool   `json:"ace"`
-	AceBy         string   `json:"ace_by"`
-	CtScore       int    `json:"ct_score"`
-	TScore        int    `json:"t_score"`
-	CtKills       int    `json:"ct_kills"`
-	TKills        int    `json:"t_kills"`
-	Duration      int    `json:"duration"`
-	CutDuration   int    `json:"cut_duration"`
-	Winner        string `json:"winner"`
-	playing       bool
-	lastTFragger  int
-	tFragRow      int
-	ctFragRow     int
-	lastCtFragger int
+	RoundNumber     int    `json:"round_number"`
+	StartTick       int    `json:"start_tick"`
+	UnfreezeTick    int    `json:"unfreeze_tick"`
+	EndTick         int    `json:"end_tick"`
+	BombExploded    bool   `json:"bomb_exploded"`
+	BombDefused     bool   `json:"bomb_defused"`
+	BombPlanted     bool   `json:"bomb_planted"`
+	Ace             bool   `json:"ace"`
+	AceBy           string `json:"ace_by"`
+	CTScore         int    `json:"ct_score"`
+	TScore          int    `json:"t_score"`
+	CTKills         int    `json:"ct_kills"`
+	TKills          int    `json:"t_kills"`
+	Duration        int    `json:"duration"`
+	CutDuration     int    `json:"cut_duration"`
+	Winner          string `json:"winner"`
+	T               string `json:"t"`
+	CT              string `json:"ct"`
+	playing         bool
+	lastTFragger    int
+	tFragRow        int
+	ctFragRow       int
+	lastCTFragger   int
+	roundEnded      bool
+	previousTScore  int
+	previousCTScore int
+	previousTName   string
+	previousCTName  string
 }
 
 type Game struct {
-	Id             string            `json:"id"`
-	Team1          string            `json:"team_1"`
-	Team2          string            `json:"team_2"`
-	MapName        string            `json:"map_name"`
-	RoundsNumber   int               `json:"rounds_number"`
-	TickRate       float64           `json:"tick_rate"`
-	TickTime       float64           `json:"tick_time"`
-	MaxTicks       int               `json:"max_ticks"`
-	MaxTime        float64           `json:"max_time"`
-	MatchStartTick int               `json:"match_start_tick"`
-	MatchEndTick   int               `json:"match_end_tick"`
-	Header         common.DemoHeader `json:"header"`
-	Rounds         []Round           `json:"rounds"`
+	Id             string  `json:"id"`
+	Team1          string  `json:"team_1"`
+	Team2          string  `json:"team_2"`
+	MapName        string  `json:"map_name"`
+	RoundsNumber   int     `json:"rounds_number"`
+	TickRate       float64 `json:"tick_rate"`
+	TickTime       float64 `json:"tick_time"`
+	MaxTicks       int     `json:"max_ticks"`
+	MaxTime        float64 `json:"max_time"`
+	MatchStartTick int     `json:"match_start_tick"`
+	MatchEndTick   int     `json:"match_end_tick"`
+	Team1Result    int     `json:"team_1_result"`
+	Team2Result    int     `json:"team_2_result"`
+	Winner         string  `json:"winner"`
+	Rounds         []Round `json:"rounds"`
+	team1          team
+	team2          team
+}
+
+type team struct {
+	id   int
+	pos  int
+	name string
 }
 
 func main() {
-	demos := readCurrentDir()
+	demos := getDemos()
 	if len(demos) == 0 {
 		fmt.Println("There are no demos in the provided path")
 		os.Exit(0)
 	}
-	sem := lib.NewSemaphore(3)
+	sem := lib.NewSemaphore(6)
 	for _, demo := range demos {
 		sem.Add()
 		go func(demo string) {
@@ -72,26 +90,32 @@ func main() {
 	fmt.Println("Done")
 }
 
-func readCurrentDir() []string {
-	path := os.Args[1]
+func getDemos() []string {
+	var demos []string
+	path := os.Args[len(os.Args)-1]
+	if exists(path) && isFile(path) {
+		if strings.HasSuffix(path, ".dem") {
+			demos = append(demos, path)
+			return demos
+		}
+		return demos
+	}
+
 	if path == "" {
 		path = "."
 	}
 	if !strings.HasSuffix(path, "/") {
 		path += "/"
 	}
-	pathExists, err := exists(path)
-	if !pathExists || err != nil {
+	if !exists(path) {
 		panic("Path provided does not exist")
 	}
-
 	file, err := os.Open(path)
 	if err != nil {
 		log.Fatalf("failed opening directory: %s", err)
 	}
 	defer file.Close()
 
-	var demos []string
 	err = filepath.Walk(path, func(subPath string, f os.FileInfo, err error) error {
 		if strings.HasSuffix(subPath, ".dem") {
 			demos = append(demos, subPath)
@@ -108,6 +132,10 @@ func readCurrentDir() []string {
 func processDemos(demoFile string) {
 	fmt.Printf("Starting to process %s\n", demoFile)
 	baseDemoFile := strings.Replace(demoFile, ".dem", "", 1)
+	jsonFile := baseDemoFile + ".json"
+	//if exists(jsonFile) {
+	//	return
+	//}
 	f, err := os.Open(demoFile)
 	if err != nil {
 		panic(err)
@@ -120,9 +148,9 @@ func processDemos(demoFile string) {
 		panic(err)
 	}
 	var game Game
-	rounds := make([]Round, 0)
 	var round Round
-	game.Header = header
+	rounds := make([]Round, 0)
+	round.playing = true
 	game.MapName = header.MapName
 	game.TickRate = header.TickRate()
 	game.TickTime = header.TickTime().Seconds()
@@ -136,11 +164,28 @@ func processDemos(demoFile string) {
 	})
 
 	p.RegisterEventHandler(func(e events.ScoreUpdated) {
-		if round.RoundNumber == 0 {
+		gs := p.GameState()
+		if !gs.IsMatchStarted() || gs.IsWarmupPeriod() {
 			return
 		}
+		if gs.TeamTerrorists().Score == 0 && gs.TeamCounterTerrorists().Score == 0 || !round.playing {
+			return
+		}
+		round.playing = false
+		round = handleRound(gs, &game, round)
 		rounds = append(rounds, round)
 		round = Round{} // Restart it
+	})
+
+	p.RegisterEventHandler(func(e events.TeamSideSwitch) {
+		if game.team1.id == 2 {
+			game.team1.id = 3
+			game.team2.id = 2
+		}
+		if game.team2.id == 2 {
+			game.team2.id = 3
+			game.team1.id = 2
+		}
 	})
 
 	p.RegisterEventHandler(func(e events.Kill) {
@@ -150,85 +195,64 @@ func processDemos(demoFile string) {
 
 		switch e.Victim.Team {
 		case common.TeamTerrorists:
-			round.CtKills++
-			if round.lastTFragger == e.Killer.EntityID {
-				round.tFragRow++
+			round.CTKills++
+			if e.Killer != nil {
+				if round.lastCTFragger == e.Killer.EntityID {
+					round.ctFragRow++
+				}
+				round.lastCTFragger = e.Killer.EntityID
+				round.ctFragRow = 1
 			}
-			round.lastTFragger = e.Killer.EntityID
-			round.tFragRow = 1
 		case common.TeamCounterTerrorists:
 			round.TKills++
-			if round.lastCtFragger == e.Killer.EntityID {
-				round.ctFragRow++
+			if e.Killer != nil {
+				if e.Killer != nil && round.lastTFragger == e.Killer.EntityID {
+					round.tFragRow++
+				}
+				round.lastTFragger = e.Killer.EntityID
+				round.tFragRow = 1
 			}
-			round.lastCtFragger = e.Killer.EntityID
-			round.ctFragRow = 1
 		}
 	})
 
 	p.RegisterEventHandler(func(e events.RoundEnd) {
 		gs := p.GameState()
-		if !gs.IsMatchStarted() || gs.IsWarmupPeriod() {
-			return
-		}
-		var tScore int
-		var ctScore int
-		round.Winner = e.WinnerState.ClanName
-		switch e.Winner {
-		case common.TeamTerrorists:
-			// Winner's score + 1 because it hasn't actually been updated yet
-			tScore, ctScore = gs.TeamTerrorists().Score+1, gs.TeamCounterTerrorists().Score
-		case common.TeamCounterTerrorists:
-			ctScore, tScore = gs.TeamCounterTerrorists().Score+1, gs.TeamTerrorists().Score
-		default:
-			// Probably match medic or something similar
-			fmt.Println("Round finished: No winner (tie)")
-			return
-		}
-		round.RoundNumber = ctScore + tScore
-		round.CtScore = ctScore
-		round.TScore = tScore
+		round.roundEnded = true
 		round.EndTick = gs.IngameTick()
-		round.playing = false
-		round.Duration = int(float64(round.EndTick-round.StartTick) * game.TickTime)
-		round.CutDuration = int(float64(round.EndTick-round.UnfreezeTick) * game.TickTime)
-		round.Ace = round.tFragRow == 5 || round.ctFragRow == 5
-		if round.Ace {
-			fmt.Printf("There was an ace on %s\n", game.Id)
-			if round.tFragRow == 5 && round.lastTFragger > 0 {
-				round.AceBy = gs.Participants().FindByHandle(round.lastTFragger).Name
-			}
-			if round.ctFragRow == 5 && round.lastCtFragger > 0  {
-				round.AceBy = gs.Participants().FindByHandle(round.lastCtFragger).Name
-			}
-		}
 	})
 
 	p.RegisterEventHandler(func(e events.MatchStart) {
 		gs := p.GameState()
 		game.MatchStartTick = gs.IngameTick()
-		game.Team1 = gs.TeamCounterTerrorists().ClanName
-		game.Team2 = gs.TeamTerrorists().ClanName
 	})
 
 	p.RegisterEventHandler(func(e events.MatchStartedChanged) {
 		gs := p.GameState()
-		game.MatchEndTick = gs.IngameTick()
+		if e.NewIsStarted && game.MatchStartTick == 0 { // If match start is not received
+			game.MatchStartTick = gs.IngameTick()
+		}
+		if !e.NewIsStarted {
+			game.MatchEndTick = gs.IngameTick()
+		}
 	})
 
 	p.RegisterEventHandler(func(e events.RoundStart) {
 		gs := p.GameState()
 		round.StartTick = gs.IngameTick()
-		round.playing = true
 	})
 
 	p.RegisterEventHandler(func(e events.RoundFreezetimeEnd) {
 		gs := p.GameState()
-		if !round.playing || gs.IngameTick() == round.EndTick {
+		if gs.IngameTick() == round.EndTick || round.UnfreezeTick > 0 {
 			return
 		}
 
+		round.playing = true
 		round.UnfreezeTick = gs.IngameTick()
+		round.previousTScore = gs.TeamTerrorists().Score
+		round.previousTName = gs.TeamTerrorists().ClanName
+		round.previousCTScore = gs.TeamCounterTerrorists().Score
+		round.previousCTName = gs.TeamCounterTerrorists().ClanName
 	})
 
 	p.RegisterEventHandler(func(e events.BombPlanted) {
@@ -245,6 +269,12 @@ func processDemos(demoFile string) {
 
 	// Parse to end
 	err = p.ParseToEnd()
+	gs := p.GameState()
+	if round.playing { // Just in case the "ScoreUpdated" is not reported, we add another round at the end (last)
+		round = handleRound(gs, &game, round)
+		rounds = append(rounds, round)
+		round = Round{} // Restart it
+	}
 
 	if err != nil {
 		panic(err)
@@ -252,16 +282,105 @@ func processDemos(demoFile string) {
 	game.Rounds = rounds
 	game.RoundsNumber = len(rounds)
 	jsonOutput, _ := json.MarshalIndent(game, "", "  ")
-	err = ioutil.WriteFile(baseDemoFile+".json", jsonOutput, 0644)
+	err = ioutil.WriteFile(jsonFile, jsonOutput, 0644)
 }
 
-func exists(path string) (bool, error) {
+func gameUpdates(game *Game, gs dem.IGameState) {
+	if game.team1.id == 0 {
+		game.team1 = team{id: gs.TeamCounterTerrorists().ID, name: gs.TeamCounterTerrorists().ClanName}
+		game.Team1 = gs.TeamCounterTerrorists().ClanName
+	}
+	if game.team2.id == 0 {
+		game.team2 = team{id: gs.TeamTerrorists().ID, name: gs.TeamTerrorists().ClanName}
+		game.Team2 = gs.TeamTerrorists().ClanName
+	}
+	team1, team2 := getTeamByPos(*game, gs)
+	game.Team1Result = team1.Score
+	game.Team2Result = team2.Score
+
+	if game.Team1Result > game.Team2Result {
+		game.Winner = game.Team1
+	}
+	if game.Team2Result > game.Team1Result {
+		game.Winner = game.Team2
+	}
+}
+
+func handleRound(gs dem.IGameState, game *Game, round Round) Round {
+	gameUpdates(game, gs)
+
+	tTeam, ctTeam := getTeamBySide(*game, gs)
+	round.T = tTeam.name
+	round.CT = ctTeam.name
+
+	tScore := gs.TeamTerrorists().Score
+	ctScore := gs.TeamCounterTerrorists().Score
+
+	if tScore > round.previousTScore {
+		round.Winner = round.T
+	}
+	if ctScore > round.previousCTScore {
+		round.Winner = round.CT
+	}
+
+	round.RoundNumber = ctScore + tScore
+	round.CTScore = ctScore
+	round.TScore = tScore
+	if round.EndTick == 0 {
+		round.EndTick = gs.IngameTick()
+	}
+	round.playing = false
+	round.Duration = int(math.Round(float64(round.EndTick-round.StartTick) * game.TickTime))
+	round.CutDuration = int(math.Round(float64(round.EndTick-round.UnfreezeTick) * game.TickTime))
+	round.Ace = round.tFragRow == 5 || round.ctFragRow == 5
+	if round.Ace {
+		fmt.Printf("There was an ace on %s\n", game.Id)
+		if round.tFragRow == 5 && round.lastTFragger > 0 {
+			round.AceBy = gs.Participants().FindByHandle(round.lastTFragger).Name
+		}
+		if round.ctFragRow == 5 && round.lastCTFragger > 0 {
+			round.AceBy = gs.Participants().FindByHandle(round.lastCTFragger).Name
+		}
+	}
+	return round
+}
+
+func getTeamByPos(game Game, gs dem.IGameState) (*common.TeamState, *common.TeamState) {
+	if gs.TeamTerrorists().ID == game.team1.id {
+		return gs.TeamTerrorists(), gs.TeamCounterTerrorists()
+	}
+	return gs.TeamCounterTerrorists(), gs.TeamTerrorists()
+}
+
+func getTeamBySide(game Game, gs dem.IGameState) (team, team) {
+	if gs.TeamTerrorists().ID == game.team1.id {
+		return game.team1, game.team2
+	}
+	return game.team2, game.team1
+}
+
+func exists(path string) bool {
 	_, err := os.Stat(path)
 	if err == nil {
-		return true, nil
+		return true
 	}
 	if os.IsNotExist(err) {
-		return false, nil
+		return false
 	}
-	return true, err
+	return true
+}
+
+func isFile(path string) bool {
+	fi, err := os.Stat(path)
+	if err != nil {
+		panic(err)
+		return false
+	}
+	switch mode := fi.Mode(); {
+	case mode.IsDir():
+		return false
+	case mode.IsRegular():
+		return true
+	}
+	return false
 }
