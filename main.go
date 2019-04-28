@@ -206,11 +206,12 @@ func processDemos(demoFile string) {
 		case common.TeamCounterTerrorists:
 			round.TKills++
 			if e.Killer != nil {
-				if e.Killer != nil && round.lastTFragger == e.Killer.EntityID {
+				if round.lastTFragger == e.Killer.EntityID {
 					round.tFragRow++
+				} else {
+					round.lastTFragger = e.Killer.EntityID
+					round.tFragRow = 1
 				}
-				round.lastTFragger = e.Killer.EntityID
-				round.tFragRow = 1
 			}
 		}
 	})
