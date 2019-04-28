@@ -44,6 +44,7 @@ type Round struct {
 	previousCTScore int
 	previousTName   string
 	previousCTName  string
+	previousRound   int
 }
 
 type Game struct {
@@ -64,6 +65,7 @@ type Game struct {
 	Rounds         []Round `json:"rounds"`
 	team1          team
 	team2          team
+	isWinnerScreen bool
 }
 
 type team struct {
@@ -72,8 +74,19 @@ type team struct {
 	name string
 }
 
+var newOnly bool
+
 func main() {
-	demos := getDemos()
+	var demos []string
+	for _, arg := range os.Args[1:] {
+		if arg == "--new" {
+			newOnly = true
+		} else if strings.HasPrefix(arg, "--") {
+			fmt.Printf("Prefix %s does not exist\n", arg)
+		} else {
+			demos = append(demos, getDemos(arg)...)
+		}
+	}
 	if len(demos) == 0 {
 		fmt.Println("There are no demos in the provided path")
 		os.Exit(0)
@@ -90,9 +103,9 @@ func main() {
 	fmt.Println("Done")
 }
 
-func getDemos() []string {
+func getDemos(path string) []string {
 	var demos []string
-	path := os.Args[len(os.Args)-1]
+	fmt.Printf("Starting to search in %s\n", path)
 	if exists(path) && isFile(path) {
 		if strings.HasSuffix(path, ".dem") {
 			demos = append(demos, path)
@@ -108,7 +121,7 @@ func getDemos() []string {
 		path += "/"
 	}
 	if !exists(path) {
-		panic("Path provided does not exist")
+		panic(fmt.Sprintf("Path (%s) provided does not exist", path))
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -130,12 +143,12 @@ func getDemos() []string {
 }
 
 func processDemos(demoFile string) {
-	fmt.Printf("Starting to process %s\n", demoFile)
 	baseDemoFile := strings.Replace(demoFile, ".dem", "", 1)
 	jsonFile := baseDemoFile + ".json"
-	//if exists(jsonFile) {
-	//	return
-	//}
+	if newOnly && exists(jsonFile) {
+		return
+	}
+	fmt.Printf("Starting to process %s\n", demoFile)
 	f, err := os.Open(demoFile)
 	if err != nil {
 		panic(err)
@@ -153,9 +166,17 @@ func processDemos(demoFile string) {
 	round.playing = true
 	game.MapName = header.MapName
 	game.TickRate = header.TickRate()
-	game.TickTime = header.TickTime().Seconds()
+	if header.PlaybackTime > 0 && header.TickTime() > 0 {
+		game.TickTime = header.TickTime().Seconds()
+	}
 	game.MaxTicks = header.PlaybackTicks
-	game.MaxTime = header.PlaybackTime.Seconds()
+	if header.PlaybackTime > 0 {
+		game.MaxTime = header.PlaybackTime.Seconds()
+	}
+	if header.SignonLength == 0 {
+		fmt.Printf("The demo (%s) seems to be broken\n", demoFile)
+		return
+	}
 	game.Id = fmt.Sprintf("%s_%d%d", game.MapName, header.SignonLength, header.PlaybackTicks)
 
 	// Register handler on kill events
@@ -163,12 +184,21 @@ func processDemos(demoFile string) {
 		rounds = make([]Round, 0) // Reset the rounds
 	})
 
+	p.RegisterEventHandler(func(e events.AnnouncementWinPanelMatch) {
+		game.isWinnerScreen = true
+	})
+
 	p.RegisterEventHandler(func(e events.ScoreUpdated) {
 		gs := p.GameState()
-		if !gs.IsMatchStarted() || gs.IsWarmupPeriod() {
+
+		// There are many cases that indicate that round was either restarted/was warmup/hasn't started yet/or round was too short..
+		offset := gs.IngameTick() - int(game.TickRate)
+		roundNum := gs.TeamTerrorists().Score + gs.TeamCounterTerrorists().Score
+		if !round.playing || (!gs.IsMatchStarted() && !game.isWinnerScreen) || gs.IsWarmupPeriod() || round.StartTick == gs.IngameTick() || round.StartTick > offset {
 			return
-		}
-		if gs.TeamTerrorists().Score == 0 && gs.TeamCounterTerrorists().Score == 0 || !round.playing {
+		} else if gs.TeamTerrorists().Score == 0 && gs.TeamCounterTerrorists().Score == 0 {
+			return
+		} else if roundNum < round.previousRound || roundNum > (len(rounds)+1) { // This could indicate broken round...
 			return
 		}
 		round.playing = false
@@ -189,13 +219,16 @@ func processDemos(demoFile string) {
 	})
 
 	p.RegisterEventHandler(func(e events.Kill) {
-		if !round.playing {
+		gs := p.GameState()
+		if gs.IngameTick() == 0 {
+			return
+		}
+		if !round.playing || !gs.IsMatchStarted() || gs.IsWarmupPeriod() {
 			return
 		}
 
 		switch e.Victim.Team {
 		case common.TeamTerrorists:
-			round.CTKills++
 			if e.Killer != nil {
 				if round.lastCTFragger == e.Killer.EntityID {
 					round.ctFragRow++
@@ -204,7 +237,6 @@ func processDemos(demoFile string) {
 				round.ctFragRow = 1
 			}
 		case common.TeamCounterTerrorists:
-			round.TKills++
 			if e.Killer != nil {
 				if round.lastTFragger == e.Killer.EntityID {
 					round.tFragRow++
@@ -231,6 +263,7 @@ func processDemos(demoFile string) {
 		gs := p.GameState()
 		if e.NewIsStarted && game.MatchStartTick == 0 { // If match start is not received
 			game.MatchStartTick = gs.IngameTick()
+			game.MatchEndTick = 0
 		}
 		if !e.NewIsStarted {
 			game.MatchEndTick = gs.IngameTick()
@@ -239,7 +272,11 @@ func processDemos(demoFile string) {
 
 	p.RegisterEventHandler(func(e events.RoundStart) {
 		gs := p.GameState()
+		if gs.IsWarmupPeriod() || !gs.IsMatchStarted() || gs.IngameTick() == round.EndTick {
+			return
+		}
 		round.StartTick = gs.IngameTick()
+		round.playing = true
 	})
 
 	p.RegisterEventHandler(func(e events.RoundFreezetimeEnd) {
@@ -251,8 +288,12 @@ func processDemos(demoFile string) {
 			return
 		}
 
+		if round.StartTick == 0 {
+			round.StartTick = gs.IngameTick()
+		}
 		round.playing = true
 		round.UnfreezeTick = gs.IngameTick()
+		round.previousRound = gs.TotalRoundsPlayed()
 		round.previousTScore = gs.TeamTerrorists().Score
 		round.previousTName = gs.TeamTerrorists().ClanName
 		round.previousCTScore = gs.TeamCounterTerrorists().Score
@@ -319,7 +360,8 @@ func handleRound(gs dem.IGameState, game *Game, round Round) Round {
 
 	tScore := gs.TeamTerrorists().Score
 	ctScore := gs.TeamCounterTerrorists().Score
-
+	round.TKills = getTKills(gs)
+	round.CTKills = getCTKills(gs)
 	if tScore > round.previousTScore {
 		round.Winner = round.T
 	}
@@ -347,6 +389,26 @@ func handleRound(gs dem.IGameState, game *Game, round Round) Round {
 		}
 	}
 	return round
+}
+
+func getCTKills(state dem.IGameState) int {
+	kills := 0
+	for _, player := range state.Participants().All() {
+		if player.Team == common.TeamTerrorists && !player.IsAlive() {
+			kills++
+		}
+	}
+	return kills
+}
+
+func getTKills(state dem.IGameState) int {
+	kills := 0
+	for _, player := range state.Participants().All() {
+		if player.Team == common.TeamCounterTerrorists && !player.IsAlive() {
+			kills++
+		}
+	}
+	return kills
 }
 
 func getTeamByPos(game Game, gs dem.IGameState) (*common.TeamState, *common.TeamState) {
