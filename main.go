@@ -301,6 +301,8 @@ func processDemos(demoFile string) {
 	})
 
 	p.RegisterEventHandler(func(e events.BombPlanted) {
+		round.BombExploded = false // Reset them as false positive
+		round.BombDefused = false  // Reset them as false positive
 		round.BombPlanted = true
 	})
 
