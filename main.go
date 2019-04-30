@@ -335,14 +335,7 @@ func processDemos(demoFile string) {
 }
 
 func gameUpdates(game *Game, gs dem.IGameState) {
-	if game.team1.id == 0 {
-		game.team1 = team{id: gs.TeamCounterTerrorists().ID, name: gs.TeamCounterTerrorists().ClanName}
-		game.Team1 = gs.TeamCounterTerrorists().ClanName
-	}
-	if game.team2.id == 0 {
-		game.team2 = team{id: gs.TeamTerrorists().ID, name: gs.TeamTerrorists().ClanName}
-		game.Team2 = gs.TeamTerrorists().ClanName
-	}
+	setTeams(game, gs)
 	team1, team2 := getTeamByPos(*game, gs)
 	game.Team1Result = team1.Score
 	game.Team2Result = team2.Score
@@ -352,6 +345,30 @@ func gameUpdates(game *Game, gs dem.IGameState) {
 	}
 	if game.Team2Result > game.Team1Result {
 		game.Winner = game.Team2
+	}
+}
+
+func setTeams(game *Game, gs dem.IGameState) {
+	teamASide := common.TeamCounterTerrorists
+	teamBSide := common.TeamTerrorists
+	if game.team1.id == 0 || game.team2.id == 0 {
+		for _, player := range gs.Participants().ByEntityID() {
+			if player.Team == common.TeamCounterTerrorists || player.Team == common.TeamTerrorists {
+				teamASide = player.Team
+			}
+			break
+		}
+		if teamASide == common.TeamTerrorists {
+			teamBSide = common.TeamCounterTerrorists
+		}
+	}
+	if game.team1.id == 0 {
+		game.team1 = team{id: gs.Team(teamASide).ID, name: gs.Team(teamASide).ClanName}
+		game.Team1 = gs.Team(teamASide).ClanName
+	}
+	if game.team2.id == 0 {
+		game.team2 = team{id: gs.Team(teamBSide).ID, name: gs.Team(teamBSide).ClanName}
+		game.Team2 = gs.Team(teamBSide).ClanName
 	}
 }
 
