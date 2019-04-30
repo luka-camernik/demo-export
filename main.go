@@ -303,17 +303,23 @@ func processDemos(demoFile string) {
 	})
 
 	p.RegisterEventHandler(func(e events.BombPlanted) {
-		round.BombExploded = false // Reset them as false positive
-		round.BombDefused = false  // Reset them as false positive
-		round.BombPlanted = true
+		if round.playing {
+			round.BombExploded = false // Reset them as false positive
+			round.BombDefused = false  // Reset them as false positive
+			round.BombPlanted = true
+		}
 	})
 
 	p.RegisterEventHandler(func(e events.BombDefused) {
-		round.BombDefused = true
+		if round.playing {
+			round.BombDefused = true
+		}
 	})
 
 	p.RegisterEventHandler(func(e events.BombExplode) {
-		round.BombExploded = true
+		if round.playing {
+			round.BombExploded = true
+		}
 	})
 
 	// Parse to end
@@ -349,26 +355,13 @@ func gameUpdates(game *Game, gs dem.IGameState) {
 }
 
 func setTeams(game *Game, gs dem.IGameState) {
-	teamASide := common.TeamCounterTerrorists
-	teamBSide := common.TeamTerrorists
-	if game.team1.id == 0 || game.team2.id == 0 {
-		for _, player := range gs.Participants().ByEntityID() {
-			if player.Team == common.TeamCounterTerrorists || player.Team == common.TeamTerrorists {
-				teamASide = player.Team
-			}
-			break
-		}
-		if teamASide == common.TeamTerrorists {
-			teamBSide = common.TeamCounterTerrorists
-		}
-	}
 	if game.team1.id == 0 {
-		game.team1 = team{id: gs.Team(teamASide).ID, name: gs.Team(teamASide).ClanName}
-		game.Team1 = gs.Team(teamASide).ClanName
+		game.team1 = team{id: gs.TeamCounterTerrorists().ID, name: gs.TeamCounterTerrorists().ClanName}
+		game.Team1 = gs.TeamCounterTerrorists().ClanName
 	}
 	if game.team2.id == 0 {
-		game.team2 = team{id: gs.Team(teamBSide).ID, name: gs.Team(teamBSide).ClanName}
-		game.Team2 = gs.Team(teamBSide).ClanName
+		game.team2 = team{id: gs.TeamTerrorists().ID, name: gs.TeamTerrorists().ClanName}
+		game.Team2 = gs.TeamTerrorists().ClanName
 	}
 }
 
@@ -413,20 +406,20 @@ func handleRound(gs dem.IGameState, game *Game, round Round) Round {
 }
 
 func getCTKills(state dem.IGameState) int {
-	kills := 0
-	for _, player := range state.Participants().All() {
-		if player.Team == common.TeamTerrorists && !player.IsAlive() {
-			kills++
+	kills := 5
+	for _, player := range state.Participants().TeamMembers(common.TeamTerrorists) {
+		if player.IsAlive() {
+			kills--
 		}
 	}
 	return kills
 }
 
 func getTKills(state dem.IGameState) int {
-	kills := 0
-	for _, player := range state.Participants().All() {
-		if player.Team == common.TeamCounterTerrorists && !player.IsAlive() {
-			kills++
+	kills := 5
+	for _, player := range state.Participants().TeamMembers(common.TeamCounterTerrorists) {
+		if player.IsAlive() {
+			kills--
 		}
 	}
 	return kills
