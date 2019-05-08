@@ -252,6 +252,9 @@ func processDemos(demoFile string) {
 
 	p.RegisterEventHandler(func(e events.RoundEnd) {
 		gs := p.GameState()
+		if e.Winner == common.TeamSpectators {
+			round = Round{}
+		}
 		round.roundEnded = true
 		round.EndTick = gs.IngameTick()
 	})
