@@ -19,6 +19,7 @@ type Round struct {
 	RoundNumber     int    `json:"round_number"`
 	StartTick       int    `json:"start_tick"`
 	UnfreezeTick    int    `json:"unfreeze_tick"`
+	OfficialEndTick int    `json:"official_end_tick"`
 	EndTick         int    `json:"end_tick"`
 	BombExploded    bool   `json:"bomb_exploded"`
 	BombDefused     bool   `json:"bomb_defused"`
@@ -49,6 +50,7 @@ type Round struct {
 
 type Game struct {
 	Id             string  `json:"id"`
+	Version        string  `json:"version"`
 	Team1          string  `json:"team_1"`
 	Team2          string  `json:"team_2"`
 	MapName        string  `json:"map_name"`
@@ -75,6 +77,7 @@ type team struct {
 }
 
 var newOnly bool
+var version = "1.0.0"
 
 func main() {
 	var demos []string
@@ -161,6 +164,7 @@ func processDemos(demoFile string) {
 		panic(err)
 	}
 	var game Game
+	game.Version = version
 	var round Round
 	rounds := make([]Round, 0)
 	round.playing = true
@@ -207,6 +211,13 @@ func processDemos(demoFile string) {
 		round = handleRound(gs, &game, round)
 		rounds = append(rounds, round)
 		round = Round{} // Restart it
+	})
+
+	p.RegisterEventHandler(func(e events.RoundEndOfficial) {
+		gs := p.GameState()
+		if len(rounds) > 0 {
+			rounds[len(rounds)-1].OfficialEndTick = gs.IngameTick()
+		}
 	})
 
 	p.RegisterEventHandler(func(e events.TeamSideSwitch) {
@@ -257,6 +268,8 @@ func processDemos(demoFile string) {
 		}
 		round.roundEnded = true
 		round.EndTick = gs.IngameTick()
+		// This will be updated later on possibly otherwise it counts as officially ending
+		round.OfficialEndTick = gs.IngameTick()
 	})
 
 	p.RegisterEventHandler(func(e events.MatchStart) {
