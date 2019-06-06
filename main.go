@@ -196,6 +196,12 @@ func processDemos(demoFile string) {
 
 	p.RegisterEventHandler(func(e events.ScoreUpdated) {
 		gs := p.GameState()
+		round.TKills = getTKills(gs)
+		round.CTKills = getCTKills(gs)
+	})
+
+	p.RegisterEventHandler(func(e events.RoundEndOfficial) {
+		gs := p.GameState()
 
 		// There are many cases that indicate that round was either restarted/was warmup/hasn't started yet/or round was too short..
 		offset := gs.IngameTick() - int(game.TickRate)
@@ -208,16 +214,12 @@ func processDemos(demoFile string) {
 			return
 		}
 		round.playing = false
+		round.TKills = getTKills(gs)
+		round.CTKills = getCTKills(gs)
+		round.OfficialEndTick = gs.IngameTick()
 		round = handleRound(gs, &game, round)
 		rounds = append(rounds, round)
 		round = Round{} // Restart it
-	})
-
-	p.RegisterEventHandler(func(e events.RoundEndOfficial) {
-		gs := p.GameState()
-		if len(rounds) > 0 {
-			rounds[len(rounds)-1].OfficialEndTick = gs.IngameTick()
-		}
 	})
 
 	p.RegisterEventHandler(func(e events.TeamSideSwitch) {
@@ -390,8 +392,6 @@ func handleRound(gs dem.IGameState, game *Game, round Round) Round {
 
 	tScore := gs.TeamTerrorists().Score
 	ctScore := gs.TeamCounterTerrorists().Score
-	round.TKills = getTKills(gs)
-	round.CTKills = getCTKills(gs)
 	if tScore > round.previousTScore {
 		round.Winner = round.T
 	}
