@@ -216,7 +216,13 @@ func processDemos(demoFile string) {
 		round.playing = false
 		round.TKills = getTKills(gs)
 		round.CTKills = getCTKills(gs)
-		round.OfficialEndTick = gs.IngameTick()
+		if !game.isWinnerScreen {
+			round.OfficialEndTick = gs.IngameTick()
+		} else if game.MatchEndTick > 0 {
+			round.OfficialEndTick = game.MatchEndTick
+		} else {
+			round.OfficialEndTick = game.MaxTicks
+		}
 		round = handleRound(gs, &game, round)
 		rounds = append(rounds, round)
 		round = Round{} // Restart it
@@ -410,7 +416,7 @@ func handleRound(gs dem.IGameState, game *Game, round Round) Round {
 	round.CutDuration = int(math.Round(float64(round.EndTick-round.UnfreezeTick) * game.TickTime))
 	round.Ace = round.tFragRow == 5 || round.ctFragRow == 5
 	if round.Ace {
-		fmt.Printf("There was an ace on %s\n", game.Id)
+		fmt.Printf("There was an ace on %s at round %d\n", game.Id, round.RoundNumber)
 		if round.tFragRow == 5 && round.lastTFragger > 0 {
 			round.AceBy = gs.Participants().FindByHandle(round.lastTFragger).Name
 		}
