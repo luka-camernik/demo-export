@@ -77,7 +77,7 @@ type team struct {
 }
 
 var newOnly bool
-var version = "1.0.3"
+var version = "1.0.4"
 
 func main() {
 	var demos []string
@@ -169,9 +169,9 @@ func processDemos(demoFile string) {
 	rounds := make([]Round, 0)
 	round.playing = true
 	game.MapName = header.MapName
-	game.TickRate = header.FrameRate()
+	game.TickRate = float64(header.PlaybackTicks) / header.PlaybackTime.Seconds()
 	if header.PlaybackTime > 0 && header.FrameTime() > 0 {
-		game.TickTime = header.FrameTime().Seconds()
+		game.TickTime = 1 / game.TickRate
 	}
 	game.MaxTicks = header.PlaybackTicks
 	if header.PlaybackTime > 0 {

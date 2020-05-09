@@ -2,3 +2,4 @@
 .idea
 bin
 demos/
+go_build_demo_export
