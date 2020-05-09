@@ -77,7 +77,7 @@ type team struct {
 }
 
 var newOnly bool
-var version = "1.0.2"
+var version = "1.0.3"
 
 func main() {
 	var demos []string
