@@ -77,7 +77,7 @@ type team struct {
 }
 
 var newOnly bool
-var version = "1.0.4"
+var version = "1.0.5"
 
 func main() {
 	var demos []string
@@ -310,7 +310,7 @@ func processDemos(demoFile string) {
 		if gs.IsWarmupPeriod() || !gs.IsMatchStarted() {
 			return
 		}
-		if gs.IngameTick() == round.EndTick || round.UnfreezeTick > 0 {
+		if gs.IngameTick() == round.EndTick || (round.UnfreezeTick > 0 && round.UnfreezeTick > round.StartTick) {
 			return
 		}
 
