@@ -185,6 +185,9 @@ func processDemos(demoFile string) {
 
 	// Register handler on kill events
 	p.RegisterEventHandler(func(e events.IsWarmupPeriodChanged) {
+		if game.isWinnerScreen {
+			return
+		}
 		rounds = make([]Round, 0) // Reset the rounds
 		game.team1 = team{}
 		game.team2 = team{}
