@@ -10,7 +10,7 @@ bin:
 	@mkdir bin || true
 
 build-windows:
-	env GOOS=windows GOARCH=amd64 go build -o bin/demo-export.exe
+	env GOOS=windows GOARCH=amd64 go build -o release/demo-export.exe
 
 build-linux:
-	env GOOS=linux GOARCH=amd64 go build -o bin/demo-export
+	env GOOS=linux GOARCH=amd64 go build -o release/demo-export
