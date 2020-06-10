@@ -77,7 +77,7 @@ type team struct {
 }
 
 var newOnly bool
-var version = "1.0.5"
+var version = "1.0.6"
 
 func main() {
 	var demos []string
@@ -330,7 +330,8 @@ func processDemos(demoFile string) {
 	})
 
 	p.RegisterEventHandler(func(e events.BombPlanted) {
-		if round.playing {
+		gs := p.GameState()
+		if !round.roundEnded && round.playing && gs.IsMatchStarted() {
 			round.BombExploded = false // Reset them as false positive
 			round.BombDefused = false  // Reset them as false positive
 			round.BombPlanted = true
@@ -338,13 +339,15 @@ func processDemos(demoFile string) {
 	})
 
 	p.RegisterEventHandler(func(e events.BombDefused) {
-		if round.playing {
+		gs := p.GameState()
+		if !round.roundEnded && round.playing && gs.IsMatchStarted() {
 			round.BombDefused = true
 		}
 	})
 
 	p.RegisterEventHandler(func(e events.BombExplode) {
-		if round.playing {
+		gs := p.GameState()
+		if !round.roundEnded && round.playing && gs.IsMatchStarted() {
 			round.BombExploded = true
 		}
 	})
