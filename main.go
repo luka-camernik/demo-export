@@ -4,6 +4,7 @@ import (
 	"demo-export/lib"
 	"encoding/json"
 	"fmt"
+	"github.com/cheggaaa/pb/v3"
 	dem "github.com/markus-wa/demoinfocs-golang/v2/pkg/demoinfocs"
 	"github.com/markus-wa/demoinfocs-golang/v2/pkg/demoinfocs/common"
 	"github.com/markus-wa/demoinfocs-golang/v2/pkg/demoinfocs/events"
@@ -95,15 +96,18 @@ func main() {
 		os.Exit(0)
 	}
 	sem := lib.NewSemaphore(6)
+	count := len(demos)
+	bar := pb.StartNew(count)
 	for _, demo := range demos {
 		sem.Add()
 		go func(demo string) {
 			defer sem.Done()
 			processDemos(demo)
+			bar.Increment()
 		}(demo)
 	}
 	sem.Wait()
-	fmt.Println("Done")
+	bar.Finish()
 }
 
 func getDemos(path string) []string {
@@ -151,7 +155,6 @@ func processDemos(demoFile string) {
 	if newOnly && exists(jsonFile) {
 		return
 	}
-	fmt.Printf("Starting to process %s\n", demoFile)
 	f, err := os.Open(demoFile)
 	if err != nil {
 		panic(err)
@@ -425,7 +428,6 @@ func handleRound(gs dem.GameState, game *Game, round Round) Round {
 	round.CutDuration = int(math.Round(float64(round.EndTick-round.UnfreezeTick) * game.TickTime))
 	round.Ace = round.tFragRow == 5 || round.ctFragRow == 5
 	if round.Ace {
-		fmt.Printf("There was an ace on %s at round %d\n", game.Id, round.RoundNumber)
 		if round.tFragRow == 5 && round.lastTFragger > 0 {
 			round.AceBy = gs.Participants().FindByHandle(round.lastTFragger).Name
 		}
