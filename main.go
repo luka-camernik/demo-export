@@ -77,7 +77,7 @@ type team struct {
 }
 
 var newOnly bool
-var version = "1.0.6"
+var version = "1.0.7"
 
 func main() {
 	var demos []string
@@ -286,6 +286,7 @@ func processDemos(demoFile string) {
 	p.RegisterEventHandler(func(e events.MatchStart) {
 		gs := p.GameState()
 		game.MatchStartTick = gs.IngameTick()
+		round.roundEnded = false
 	})
 
 	p.RegisterEventHandler(func(e events.MatchStartedChanged) {
@@ -305,6 +306,7 @@ func processDemos(demoFile string) {
 			return
 		}
 		round.StartTick = gs.IngameTick()
+		round.roundEnded = false
 		round.playing = true
 	})
 
@@ -321,6 +323,7 @@ func processDemos(demoFile string) {
 			round.StartTick = gs.IngameTick()
 		}
 		round.playing = true
+		round.roundEnded = false
 		round.UnfreezeTick = gs.IngameTick()
 		round.previousRound = gs.TotalRoundsPlayed()
 		round.previousTScore = gs.TeamTerrorists().Score()
