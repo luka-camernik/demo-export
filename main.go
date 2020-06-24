@@ -23,30 +23,41 @@ type Round struct {
 	OfficialEndTick int    `json:"official_end_tick"`
 	EndTick         int    `json:"end_tick"`
 	BombExploded    bool   `json:"bomb_exploded"`
+	BombExplodedAt  int    `json:"bomb_exploded_at"`
 	BombDefused     bool   `json:"bomb_defused"`
+	BombDefusedAt   int    `json:"bomb_defused_at"`
 	BombPlanted     bool   `json:"bomb_planted"`
 	Ace             bool   `json:"ace"`
 	AceBy           string `json:"ace_by"`
-	CTScore         int    `json:"ct_score"`
-	TScore          int    `json:"t_score"`
-	CTKills         int    `json:"ct_kills"`
-	TKills          int    `json:"t_kills"`
-	Duration        int    `json:"duration"`
-	CutDuration     int    `json:"cut_duration"`
-	Winner          string `json:"winner"`
-	T               string `json:"t"`
-	CT              string `json:"ct"`
-	playing         bool
-	lastTFragger    int
-	tFragRow        int
-	ctFragRow       int
-	lastCTFragger   int
-	roundEnded      bool
-	previousTScore  int
-	previousCTScore int
-	previousTName   string
-	previousCTName  string
-	previousRound   int
+
+	CT                 string `json:"ct"`
+	CTScore            int    `json:"ct_score"`
+	PreviousCTScore    int    `json:"previous_ct_score"`
+	CTKills            int    `json:"ct_kills"`
+	CTPlayersRemaining int    `json:"ct_players_remaining"`
+
+	T                 string `json:"t"`
+	TScore            int    `json:"t_score"`
+	PreviousTScore    int    `json:"previous_t_score"`
+	TKills            int    `json:"t_kills"`
+	TPlayersRemaining int    `json:"t_players_remaining"`
+
+	Duration         int    `json:"duration"`
+	CutDuration      int    `json:"cut_duration"`
+	Winner           string `json:"winner"`
+	EndReason        string `json:"end_reason"`
+	WasMismatchKills bool   `json:"was_mismatch_kills"`
+
+	mismatchKills  bool
+	playing        bool
+	roundEnded     bool
+	lastTFragger   int
+	lastCTFragger  int
+	tFragRow       int
+	ctFragRow      int
+	previousTName  string
+	previousCTName string
+	previousRound  int
 }
 
 type Game struct {
@@ -78,7 +89,7 @@ type team struct {
 }
 
 var newOnly bool
-var version = "1.0.7"
+var version = "1.1"
 
 func main() {
 	var demos []string
@@ -160,8 +171,8 @@ func processDemos(demoFile string) {
 		panic(err)
 	}
 	defer f.Close()
-
 	p := dem.NewParser(f)
+	defer p.Close()
 	header, err := p.ParseHeader()
 	if err != nil {
 		panic(err)
@@ -200,12 +211,6 @@ func processDemos(demoFile string) {
 		game.isWinnerScreen = true
 	})
 
-	p.RegisterEventHandler(func(e events.ScoreUpdated) {
-		gs := p.GameState()
-		round.TKills = getTKills(gs)
-		round.CTKills = getCTKills(gs)
-	})
-
 	p.RegisterEventHandler(func(e events.RoundEndOfficial) {
 		gs := p.GameState()
 
@@ -220,8 +225,6 @@ func processDemos(demoFile string) {
 			return
 		}
 		round.playing = false
-		round.TKills = getTKills(gs)
-		round.CTKills = getCTKills(gs)
 		if !game.isWinnerScreen {
 			round.OfficialEndTick = gs.IngameTick()
 		} else if game.MatchEndTick > 0 {
@@ -245,6 +248,15 @@ func processDemos(demoFile string) {
 		}
 	})
 
+	p.RegisterEventHandler(func(e events.FrameDone) {
+		if round.mismatchKills {
+			gs := p.GameState()
+			round.mismatchKills = false
+			round.TKills = getTKills(gs)
+			round.CTKills = getCTKills(gs)
+		}
+	})
+
 	p.RegisterEventHandler(func(e events.Kill) {
 		gs := p.GameState()
 		if gs.IngameTick() == 0 {
@@ -256,20 +268,29 @@ func processDemos(demoFile string) {
 
 		switch e.Victim.Team {
 		case common.TeamTerrorists:
-			if e.Killer != nil {
+			if e.Killer != nil && e.Killer.Team == common.TeamCounterTerrorists {
+				round.CTKills++
 				if round.lastCTFragger == e.Killer.EntityID {
 					round.ctFragRow++
+				} else {
+					round.lastCTFragger = e.Killer.EntityID
+					round.ctFragRow = 1
 				}
-				round.lastCTFragger = e.Killer.EntityID
-				round.ctFragRow = 1
+				if round.CTKills == 5 && !round.BombPlanted {
+					round.SaveReason("team_kill")
+				}
 			}
 		case common.TeamCounterTerrorists:
-			if e.Killer != nil {
+			if e.Killer != nil && e.Killer.Team == common.TeamTerrorists {
+				round.TKills++
 				if round.lastTFragger == e.Killer.EntityID {
 					round.tFragRow++
 				} else {
 					round.lastTFragger = e.Killer.EntityID
 					round.tFragRow = 1
+				}
+				if round.TKills == 5 {
+					round.SaveReason("team_kill")
 				}
 			}
 		}
@@ -280,10 +301,20 @@ func processDemos(demoFile string) {
 		if e.Winner == common.TeamSpectators {
 			round = Round{}
 		}
+		if (e.Reason == events.RoundEndReasonCTWin && round.CTKills < 5) || (e.Reason == events.RoundEndReasonTerroristsWin && round.TKills < 5) {
+			round.mismatchKills = true
+			round.WasMismatchKills = true
+			round.TKills = getTKills(gs)
+			round.CTKills = getCTKills(gs)
+		}
 		round.roundEnded = true
 		round.EndTick = gs.IngameTick()
 		// This will be updated later on possibly otherwise it counts as officially ending
 		round.OfficialEndTick = gs.IngameTick()
+
+		if round.EndReason != "team_kill" && e.Reason != events.RoundEndReasonBombDefused && e.Reason != events.RoundEndReasonTargetBombed {
+			round.SaveReason("expired")
+		}
 	})
 
 	p.RegisterEventHandler(func(e events.MatchStart) {
@@ -329,15 +360,18 @@ func processDemos(demoFile string) {
 		round.roundEnded = false
 		round.UnfreezeTick = gs.IngameTick()
 		round.previousRound = gs.TotalRoundsPlayed()
-		round.previousTScore = gs.TeamTerrorists().Score()
+		round.PreviousTScore = gs.TeamTerrorists().Score()
 		round.previousTName = gs.TeamTerrorists().ClanName()
-		round.previousCTScore = gs.TeamCounterTerrorists().Score()
+		round.PreviousCTScore = gs.TeamCounterTerrorists().Score()
 		round.previousCTName = gs.TeamCounterTerrorists().ClanName()
+		round.CTKills = 0
+		round.TKills = 0
+		round.EndReason = ""
 	})
 
 	p.RegisterEventHandler(func(e events.BombPlanted) {
 		gs := p.GameState()
-		if !round.roundEnded && round.playing && gs.IsMatchStarted() {
+		if round.playing && gs.IsMatchStarted() {
 			round.BombExploded = false // Reset them as false positive
 			round.BombDefused = false  // Reset them as false positive
 			round.BombPlanted = true
@@ -346,15 +380,19 @@ func processDemos(demoFile string) {
 
 	p.RegisterEventHandler(func(e events.BombDefused) {
 		gs := p.GameState()
-		if !round.roundEnded && round.playing && gs.IsMatchStarted() {
+		if round.playing && gs.IsMatchStarted() {
+			round.SaveReason("bomb_defused")
 			round.BombDefused = true
+			round.BombDefusedAt = gs.IngameTick()
 		}
 	})
 
 	p.RegisterEventHandler(func(e events.BombExplode) {
 		gs := p.GameState()
-		if !round.roundEnded && round.playing && gs.IsMatchStarted() {
+		if round.playing && gs.IsMatchStarted() {
+			round.SaveReason("bomb_exploded")
 			round.BombExploded = true
+			round.BombExplodedAt = gs.IngameTick()
 		}
 	})
 
@@ -410,10 +448,10 @@ func handleRound(gs dem.GameState, game *Game, round Round) Round {
 
 	tScore := gs.TeamTerrorists().Score()
 	ctScore := gs.TeamCounterTerrorists().Score()
-	if tScore > round.previousTScore {
+	if tScore > round.PreviousTScore {
 		round.Winner = round.T
 	}
-	if ctScore > round.previousCTScore {
+	if ctScore > round.PreviousCTScore {
 		round.Winner = round.CT
 	}
 
@@ -427,6 +465,8 @@ func handleRound(gs dem.GameState, game *Game, round Round) Round {
 	round.Duration = int(math.Round(float64(round.EndTick-round.StartTick) * game.TickTime))
 	round.CutDuration = int(math.Round(float64(round.EndTick-round.UnfreezeTick) * game.TickTime))
 	round.Ace = round.tFragRow == 5 || round.ctFragRow == 5
+	round.CTPlayersRemaining = 5 - getTKills(gs)
+	round.TPlayersRemaining = 5 - getCTKills(gs)
 	if round.Ace {
 		if round.tFragRow == 5 && round.lastTFragger > 0 {
 			round.AceBy = gs.Participants().FindByHandle(round.lastTFragger).Name
@@ -441,7 +481,8 @@ func handleRound(gs dem.GameState, game *Game, round Round) Round {
 func getCTKills(state dem.GameState) int {
 	kills := 5
 	for _, player := range state.Participants().TeamMembers(common.TeamTerrorists) {
-		if player.IsAlive() {
+		health := player.Health()
+		if health > 0 {
 			kills--
 		}
 	}
@@ -451,7 +492,8 @@ func getCTKills(state dem.GameState) int {
 func getTKills(state dem.GameState) int {
 	kills := 5
 	for _, player := range state.Participants().TeamMembers(common.TeamCounterTerrorists) {
-		if player.IsAlive() {
+		health := player.Health()
+		if health > 0 {
 			kills--
 		}
 	}
@@ -496,4 +538,10 @@ func isFile(path string) bool {
 		return true
 	}
 	return false
+}
+
+func (r *Round) SaveReason(reason string) {
+	if r.EndReason == "" {
+		r.EndReason = reason
+	}
 }
