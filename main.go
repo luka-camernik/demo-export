@@ -48,16 +48,17 @@ type Round struct {
 	EndReason        string `json:"end_reason"`
 	WasMismatchKills bool   `json:"was_mismatch_kills"`
 
-	mismatchKills  bool
-	playing        bool
-	roundEnded     bool
-	lastTFragger   int
-	lastCTFragger  int
-	tFragRow       int
-	ctFragRow      int
-	previousTName  string
-	previousCTName string
-	previousRound  int
+	mismatchKills     bool
+	remainingReported string
+	playing           bool
+	roundEnded        bool
+	lastTFragger      int
+	lastCTFragger     int
+	tFragRow          int
+	ctFragRow         int
+	previousTName     string
+	previousCTName    string
+	previousRound     int
 }
 
 type Game struct {
@@ -209,6 +210,9 @@ func processDemos(demoFile string) {
 
 	p.RegisterEventHandler(func(e events.AnnouncementWinPanelMatch) {
 		game.isWinnerScreen = true
+		if round.remainingReported == "" {
+			round.remainingReported = "record"
+		}
 	})
 
 	p.RegisterEventHandler(func(e events.RoundEndOfficial) {
@@ -254,6 +258,12 @@ func processDemos(demoFile string) {
 			round.mismatchKills = false
 			round.TKills = getTKills(gs)
 			round.CTKills = getCTKills(gs)
+		}
+		if round.remainingReported == "record" {
+			gs := p.GameState()
+			round.CTPlayersRemaining = 5 - getTKills(gs)
+			round.TPlayersRemaining = 5 - getCTKills(gs)
+			round.remainingReported = "recorded"
 		}
 	})
 
@@ -465,8 +475,11 @@ func handleRound(gs dem.GameState, game *Game, round Round) Round {
 	round.Duration = int(math.Round(float64(round.EndTick-round.StartTick) * game.TickTime))
 	round.CutDuration = int(math.Round(float64(round.EndTick-round.UnfreezeTick) * game.TickTime))
 	round.Ace = round.tFragRow == 5 || round.ctFragRow == 5
-	round.CTPlayersRemaining = 5 - getTKills(gs)
-	round.TPlayersRemaining = 5 - getCTKills(gs)
+	if round.remainingReported == "" {
+		round.CTPlayersRemaining = 5 - getTKills(gs)
+		round.TPlayersRemaining = 5 - getCTKills(gs)
+		round.remainingReported = "recorded"
+	}
 	if round.Ace {
 		if round.tFragRow == 5 && round.lastTFragger > 0 {
 			round.AceBy = gs.Participants().FindByHandle(round.lastTFragger).Name
